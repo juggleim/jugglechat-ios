@@ -1,0 +1,9 @@
+Pods
+Build
+DerivedData
+*.xcworkspace/xcuserdata
+*.xcworkspace/xcshareddata
+QuickStart.xcodeproj/project.xcworkspace/xcuserdata
+QuickStart.xcodeproj/project.xcworkspace/xcshareddata
+QuickStart.xcodeproj/xcuserdata
+QuickStart.xcodeproj/xcshareddata

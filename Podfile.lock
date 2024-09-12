@@ -1,0 +1,16 @@
+PODS:
+  - JuggleIM (1.7.0)
+
+DEPENDENCIES:
+  - JuggleIM (= 1.7.0)
+
+SPEC REPOS:
+  trunk:
+    - JuggleIM
+
+SPEC CHECKSUMS:
+  JuggleIM: dc2aa39b332a93583b431747313e526febab7202
+
+PODFILE CHECKSUM: 5d4cc1bbb2ff8f60c410a7a24d4bcb5a510cc3ef
+
+COCOAPODS: 1.15.2
