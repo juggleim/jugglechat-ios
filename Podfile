@@ -6,6 +6,6 @@ target 'QuickStart' do
   use_frameworks!
 
   # Pods for QuickStart
-  pod 'JuggleIM', '1.7.0'
+  pod 'JuggleIM', '1.7.1'
 
 end
