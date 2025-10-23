@@ -85,6 +85,7 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
         )
     }()
     
+    public lazy var quotedMessageView: (UIView & SBUQuotedMessageViewProtocol)? = SBUQuotedBaseMessageView()
     
     // + ------------------+----------------+
     // | threadInfoSpacing | threadInfoView |
@@ -142,7 +143,7 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
     }()
     
     /// A ``SBUMessageReactionView`` that shows reactions on the message.
-//    public var reactionView: SBUMessageReactionView = SBUMessageReactionView()
+    public var reactionView: SBUMessageReactionView = SBUMessageReactionView()
     
     public private(set) lazy var profileContentSpacing: UIView = UIView()
     
@@ -166,6 +167,7 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
         self.userNameView.isHidden = true
         self.profileView.isHidden = true
         self.profilesStackView.isHidden = true
+        self.quotedMessageView?.isHidden = true
         self.threadHStackView.isHidden = true
         
         // + --------------------------------------------------------------+
@@ -186,6 +188,7 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
                 ]),
                 self.profileContentSpacing,
                 self.contentVStackView.setVStack([
+                    self.quotedMessageView,
                     self.messageHStackView.setHStack([
                         self.mainContainerVStackView.setVStack([
                             self.mainContainerView,
@@ -226,20 +229,20 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
             action: #selector(self.onTapUserProfileView(sender:)))
         )
 
-//        self.reactionView.emojiTapHandler = { [weak self] emojiKey in
-//            guard let self = self else { return }
-//            self.emojiTapHandler?(emojiKey)
-//        }
-//
-//        self.reactionView.emojiLongPressHandler = { [weak self] emojiKey in
-//            guard let self = self else { return }
-//            self.emojiLongPressHandler?(emojiKey)
-//        }
-//
-//        self.reactionView.moreEmojiTapHandler = { [weak self] in
-//            guard let self = self else { return }
-//            self.moreEmojiTapHandler?()
-//        }
+        self.reactionView.emojiTapHandler = { [weak self] emojiKey in
+            guard let self = self else { return }
+            self.emojiTapHandler?(emojiKey)
+        }
+
+        self.reactionView.emojiLongPressHandler = { [weak self] emojiKey in
+            guard let self = self else { return }
+            self.emojiLongPressHandler?(emojiKey)
+        }
+
+        self.reactionView.moreEmojiTapHandler = { [weak self] in
+            guard let self = self else { return }
+            self.moreEmojiTapHandler?()
+        }
     }
     
     open override func setupStyles() {
@@ -250,7 +253,7 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
         self.mainContainerView.rightPressedBackgroundColor = self.theme.rightPressedBackgroundColor
         
         self.mainContainerView.setupStyles()
-//        self.reactionView.setupStyles()
+        self.reactionView.setupStyles()
         
         if let userNameView = self.userNameView as? SBUUserNameView {
             userNameView.setupStyles()
@@ -287,13 +290,14 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
         guard let message = self.message else { return }
         
 //        // MARK: Configure reaction view
-//        self.reactionView.configure(
-//            maxWidth: SBUConstant.imageSize.width,
-//            useReaction: self.useReaction,
-////            reactions: message.reactions,
-//            //TODO:
-//            enableEmojiLongPress: self.enableEmojiLongPress
-//        )
+        let params = SBUMessageReactionViewParams(
+            maxWidth: SBUConstant.imageSize.width,
+            useReaction: self.useReaction,
+            reactions: configuration.reaction?.itemList ?? [],
+            enableEmojiLongPress: self.enableEmojiLongPress,
+            message: message
+        )
+        self.reactionView.configure(configuration: params)
         
         // MARK: update UI with message position
         
@@ -310,6 +314,9 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
             let senderId = message.senderUserId
             if let sender = JIM.shared().userInfoManager.getUserInfo(senderId), let name = sender.userName {
                 username = name
+                if sender.type == .bot {
+                    username.append(" 智能体")
+                }
             }
             userNameView.configure(username: username)
         }
@@ -362,6 +369,8 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
                 joinedAt: configuration.joinedAt,
                 messageOffsetTimestamp: configuration.messageOffsetTimestamp
             )
+        } else {
+            self.quotedMessageView?.isHidden = true
         }
         
         if self.useThreadInfo {
@@ -376,65 +385,43 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
     }
     
     public func setupQuotedMessageView(joinedAt: Int64 = 0, messageOffsetTimestamp: Int64 = 0) {
-        return
-        //TODO:
-//        guard self.quotedMessageView != nil,
-//              let message = self.message,
-//              let quotedMessage = self.message?.parentMessage else { return }
-//        let configuration = SBUQuotedJMessageViewParams(
-//            message: message,
-//            position: self.position,
-//            useQuotedMessage: self.useQuotedMessage,
-//            joinedAt: joinedAt,
-//            messageOffsetTimestamp: messageOffsetTimestamp
-//        )
-//        guard self.quotedMessageView is SBUQuotedJMessageView else {
-//            // For customized parent message view.
-//            self.quotedMessageView?.configure(with: configuration)
-//            return
-//        }
-//
-//        let isMessageUnavailable = (
-//            (message.parentMessage?.createdAt ?? 0) < messageOffsetTimestamp
-//            && SendbirdUI.config.groupChannel.channel.replyType == .thread
-//        )
-//
-//        let userMessageBlock = {
-//            if !(self.quotedMessageView is SBUQuotedUserMessageView) {
-//                self.contentVStackView.arrangedSubviews.forEach {
-//                    $0.removeFromSuperview()
-//                }
-//                self.quotedMessageView = SBUQuotedUserMessageView()
-//                self.contentVStackView.setVStack([
-//                    self.quotedMessageView,
-//                    self.messageHStackView
-//                ])
-//            }
-//            (self.quotedMessageView as? SBUQuotedUserMessageView)?.configure(with: configuration)
-//        }
-//
-//        switch quotedMessage {
-//        case is UserMessage:
-//            userMessageBlock()
-//        case is JMessage, is MultipleFilesMessage:
-//            if isMessageUnavailable {
-//                userMessageBlock()
-//            }
-//            if !(self.quotedMessageView is SBUQuotedJMessageView) {
-//                self.contentVStackView.arrangedSubviews.forEach {
-//                    $0.removeFromSuperview()
-//                }
-//                self.quotedMessageView = SBUQuotedJMessageView()
-//                self.contentVStackView.setVStack([
-//                    quotedMessageView,
-//                    messageHStackView
-//                ])
-//            }
-//            (self.quotedMessageView as? SBUQuotedJMessageView)?.configure(with: configuration)
-//        default:
-//            self.quotedMessageView?.removeFromSuperview()
-//        }
-//        self.updateContentsPosition()
+        guard self.quotedMessageView != nil,
+              let message = self.message,
+              let quotedMessage = self.message?.referredMsg else { return }
+        let configuration = SBUQuotedBaseMessageViewParams(
+            message: message,
+            position: self.position,
+            useQuotedMessage: self.useQuotedMessage,
+            joinedAt: joinedAt,
+            messageOffsetTimestamp: messageOffsetTimestamp
+        )
+        guard self.quotedMessageView is SBUQuotedBaseMessageView else {
+            // For customized parent message view.
+            self.quotedMessageView?.configure(with: configuration)
+            return
+        }
+
+        let isMessageUnavailable = false
+
+        let userMessageBlock = {
+            if !(self.quotedMessageView is SBUQuotedUserMessageView) {
+                self.contentVStackView.arrangedSubviews.forEach {
+                    $0.removeFromSuperview()
+                }
+                self.quotedMessageView = SBUQuotedUserMessageView()
+                self.contentVStackView.setVStack([
+                    self.quotedMessageView,
+                    self.messageHStackView
+                ])
+            }
+            (self.quotedMessageView as? SBUQuotedUserMessageView)?.configure(with: configuration)
+        }
+        
+        if quotedMessage.content is JTextMessage {
+            userMessageBlock()
+        }
+
+        self.updateContentsPosition()
     }
     
     /// Set up the thread info view.
@@ -505,6 +492,7 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
                 self.messageSpacing
             ])
             self.contentVStackView.setVStack([
+                self.quotedMessageView,
                 self.messageHStackView
             ])
             self.contentHStackView.setHStack([
@@ -527,6 +515,7 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
                 ]),
             ])
             self.contentVStackView.setVStack([
+                self.quotedMessageView,
                 self.messageHStackView
             ])
             self.contentHStackView.setHStack([
@@ -600,8 +589,13 @@ open class SBUContentBaseMessageCell: SBUBaseMessageCell {
     open func configureUserProfileView(message: JMessage) {
         if let profileView = self.profileView as? SBUMessageProfileView {
             let userId = message.senderUserId
-            let urlString = JIM.shared().userInfoManager.getUserInfo(userId)?.portrait ?? ""
-            profileView.configure(urlString: urlString)
+            let userInfo = JIM.shared().userInfoManager.getUserInfo(userId)
+            let urlString = userInfo?.portrait ?? ""
+            var image: UIImage? = nil
+            if urlString.count == 0 {
+                image = PortraitUtil.defaultPortraitImage(with: userId, name: userInfo?.userName, type: .private)
+            }
+            profileView.configure(urlString: urlString, uiImage: image)
         }
     }
         

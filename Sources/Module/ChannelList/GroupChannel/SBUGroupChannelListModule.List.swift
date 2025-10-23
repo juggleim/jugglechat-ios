@@ -16,6 +16,18 @@ public protocol SBUGroupChannelListModuleListDelegate: SBUBaseChannelListModuleL
     ///    - listComponent: `SBUGroupChannelListModule.List` object.
     ///    - channel: The channel that was selected.
     func groupChannelListModule(_ listComponent: SBUGroupChannelListModule.List, didSelectLeave conversationInfo: JConversationInfo)
+    
+    func groupChannelListModule(
+        _ listComponent: SBUGroupChannelListModule.List,
+        didSelectMute isMute:Bool,
+        conversationInfo: JConversationInfo
+    )
+    
+    func groupChannelListModule(
+        _ listComponent: SBUGroupChannelListModule.List,
+        didSelectUnread isUnread:Bool,
+        conversationInfo: JConversationInfo
+    )
 }
 
 /// Methods to get data source for the list component in the group channel list.
@@ -43,6 +55,34 @@ extension SBUGroupChannelListModule {
             get { self.baseDataSource as? SBUGroupChannelListModuleListDataSource }
             set { self.baseDataSource = newValue }
         }
+        
+        enum Section: CaseIterable {
+            case main
+        }
+        
+        lazy var diffableDataSource: UITableViewDiffableDataSource<Section, ConversationInfoWrapper> = {
+            let source = UITableViewDiffableDataSource<Section, ConversationInfoWrapper>(tableView: self.tableView) { tableView, indexPath, item in
+                var cell: SBUBaseChannelCell?
+                if let channelCell = self.channelCell {
+                    cell = tableView.dequeueReusableCell(
+                        withIdentifier: channelCell.sbu_className
+                    ) as? SBUBaseChannelCell
+                } else if let customCell = self.customCell {
+                    cell = tableView.dequeueReusableCell(
+                        withIdentifier: customCell.sbu_className
+                    ) as? SBUBaseChannelCell
+                } else {
+                    cell = SBUBaseChannelCell()
+                }
+                
+                cell?.selectionStyle = .none
+                
+                self.configureCell(cell, conversationInfoWrapper: item)
+                
+                return cell ?? UITableViewCell()
+            }
+            return source
+        }()
 
         // MARK: - LifeCycle
         @available(*, unavailable, renamed: "SBUGroupChannelListModule.List()")
@@ -94,6 +134,22 @@ extension SBUGroupChannelListModule {
             (self.emptyView as? SBUEmptyView)?.setupStyles()
         }
         
+        public override func reloadTableView() {
+            var wrappers: [ConversationInfoWrapper] = []
+            if let list = self.conversationInfoList {
+                for conversationInfo in list {
+                    var wrapper = ConversationInfoWrapper()
+                    wrapper.conversationInfo = conversationInfo
+                    wrappers.append(wrapper)
+                }
+            }
+            
+            var snapshot = NSDiffableDataSourceSnapshot<Section, ConversationInfoWrapper>()
+            snapshot.appendSections([.main])
+            snapshot.appendItems(wrappers, toSection: .main)
+            self.diffableDataSource.apply(snapshot, animatingDifferences: false)
+        }
+        
         // MARK: - TableView
         
         /// Creates leave contextual action for a particular swipped cell.
@@ -107,7 +163,7 @@ extension SBUGroupChannelListModule {
             
             let leaveAction = UIContextualAction(
                 style: .normal,
-                title: ""
+                title: "删除"
             ) { [weak self] _, _, actionHandler in
                 guard let self = self else { return }
                 self.delegate?.groupChannelListModule(self, didSelectLeave: conversationInfo)
@@ -134,47 +190,68 @@ extension SBUGroupChannelListModule {
             
             return leaveAction
         }
+        
+        /// Creates alarm contextual action for a particular swipped cell.
+        /// - Parameter indexPath: An index path representing the `channelCell`
+        /// - Returns: `UIContextualAction` object.
+        public func alarmContextualAction(with indexPath: IndexPath) -> UIContextualAction? {
+            guard let conversationInfo = self.conversationInfoList?[indexPath.row] else { return nil }
+            
+            let size = tableView.visibleCells[0].frame.height
+            let itemSize: CGFloat = 40.0
+            
+            let mute = conversationInfo.mute
+            var title = "消息免打扰"
+            if mute {
+                title = "消息提醒"
+            }
+            let alarmAction = UIContextualAction(
+                style: .normal,
+                title: title
+            ) { [weak self] _, _, actionHandler in
+                guard let self = self else { return }
+                self.delegate?.groupChannelListModule(self, didSelectMute: !mute, conversationInfo: conversationInfo)
+                actionHandler(true)
+            }
+            
+            let alarmTypeView = UIImageView(
+                frame: CGRect(
+                    x: (size-itemSize)/2,
+                    y: (size-itemSize)/2,
+                    width: itemSize,
+                    height: itemSize
+                ))
+            let alarmIcon: UIImage
+            
+            if mute {
+                alarmTypeView.backgroundColor = self.theme?.notificationOnBackgroundColor
+                alarmIcon = SBUIconSetType.iconNotificationFilled.image(
+                    with: self.theme?.notificationOnTintColor,
+                    to: SBUIconSetType.Metric.defaultIconSize
+                )
+            } else {
+                alarmTypeView.backgroundColor = self.theme?.notificationOffBackgroundColor
+                alarmIcon = SBUIconSetType.iconNotificationOffFilled.image(
+                    with: self.theme?.notificationOffTintColor,
+                    to: SBUIconSetType.Metric.defaultIconSize
+                )
+            }
+            alarmTypeView.image = alarmIcon
+            alarmTypeView.contentMode = .center
+            alarmTypeView.layer.cornerRadius = itemSize/2
+            
+            alarmAction.image = alarmTypeView.asImage()
+            alarmAction.backgroundColor = self.theme?.alertBackgroundColor
+            
+            return alarmAction
+        }
     }
 }
 
 // MARK: - UITableView relations
 extension SBUGroupChannelListModule.List {
-    open override func numberOfSections(in tableView: UITableView) -> Int {
-        return super.numberOfSections(in: tableView)
-    }
-    
     open override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         self.delegate?.baseChannelListModule(self, didSelectRowAt: indexPath)
-    }
-    
-    open override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-//        guard indexPath.row < self.channelList?.count ?? 0 else {
-//            let error = JErrorCode(domain: "The index is out of range.", code: -1, userInfo: nil)
-//            self.delegate?.didReceiveError(error, isBlocker: false)
-//            return UITableViewCell()
-//        }
-        
-        var cell: SBUBaseChannelCell?
-        if let channelCell = self.channelCell {
-            cell = tableView.dequeueReusableCell(
-                withIdentifier: channelCell.sbu_className
-            ) as? SBUBaseChannelCell
-        } else if let customCell = self.customCell {
-            cell = tableView.dequeueReusableCell(
-                withIdentifier: customCell.sbu_className
-            ) as? SBUBaseChannelCell
-        } else {
-            cell = SBUBaseChannelCell()
-        }
-        
-        cell?.selectionStyle = .none
-        
-        self.configureCell(cell, indexPath: indexPath)
-        
-        return cell ?? UITableViewCell()
     }
     
     open override func tableView(
@@ -182,20 +259,17 @@ extension SBUGroupChannelListModule.List {
         willDisplay cell: UITableViewCell,
         forRowAt indexPath: IndexPath
     ) {
-        let rowForPreloading = Int(SBUGroupChannelListViewModel.channelLoadLimit)/2
-        let channelListCount = self.conversationInfoList?.count ?? 0
-        if channelListCount > 0,
-           indexPath.row == (channelListCount - rowForPreloading) {
-            self.delegate?.baseChannelListModule(self, didDetectPreloadingPosition: indexPath)
-        }
     }
     
-    open override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        tableView.backgroundView?.isHidden = !(self.conversationInfoList?.isEmpty ?? true)
-        if let count = self.conversationInfoList?.count {
-            SBULog.info("conversationInfoList count is  \(count)")
+    public override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let offsetY = scrollView.contentOffset.y
+        let contentHeight = scrollView.contentSize.height
+        let frameHeight = scrollView.frame.size.height
+
+        // 当滚动到接近当前数据列表末尾时加载更多数据
+        if offsetY > contentHeight - frameHeight - 100 {
+            self.delegate?.baseChannelListModuledidDetectPreloading(self)
         }
-        return self.conversationInfoList?.count ?? 0
     }
     
     open override func tableView(
@@ -203,21 +277,39 @@ extension SBUGroupChannelListModule.List {
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     )
     -> UISwipeActionsConfiguration? {
-        if self.conversationInfoList?.count ?? 0 > indexPath.row,
-           let channelList = conversationInfoList {
-            let channel = channelList[indexPath.row]
-//            if channel.isChatNotification {
-//                return nil
-//            }
+        var actions: [UIContextualAction] = []
+        
+        guard let conversationInfo = self.conversationInfoList?[indexPath.row] else { return nil }
+        let leaveAction = UIContextualAction(style: .destructive, title: "删除") { action, sourceView, completeHandler in
+            self.delegate?.groupChannelListModule(self, didSelectLeave: conversationInfo)
+            completeHandler(true)
         }
         
-        var actions: [UIContextualAction] = []
-        if let leaveAction = leaveContextualAction(with: indexPath) {
-            actions.append(leaveAction)
+        var title = "消息免打扰"
+        let mute = conversationInfo.mute
+        if mute {
+            title = "消息提醒"
         }
-//        if let alarmAction = alarmContextualAction(with: indexPath) {
-//            actions.append(alarmAction)
-//        }
+        let alarmAction = UIContextualAction(style: .normal, title: title) { action, sourceView, completeHandler in
+            self.delegate?.groupChannelListModule(self, didSelectMute: !mute, conversationInfo: conversationInfo)
+            completeHandler(true)
+        }
+        alarmAction.backgroundColor = UIColor.orange
+        
+        title = "设置未读"
+        var unreadFlag = false
+        if conversationInfo.unreadCount > 0 || conversationInfo.hasUnread {
+            title = "设置已读"
+            unreadFlag = true
+        }
+        let setUnreadAction = UIContextualAction(style: .normal, title: title) { action, sourceView, completeHandler in
+            self.delegate?.groupChannelListModule(self, didSelectUnread: !unreadFlag, conversationInfo: conversationInfo)
+            completeHandler(true)
+        }
+        setUnreadAction.backgroundColor = UIColor.blue
+        actions.append(leaveAction)
+        actions.append(alarmAction)
+        actions.append(setUnreadAction)
         
         return UISwipeActionsConfiguration(actions: actions)
     }

@@ -409,6 +409,21 @@ open class SBUMessageInputView: SBUView, SBUActionSheetDelegate, UITextViewDeleg
         tag: MediaResourceType.document.rawValue,
         completionHandler: nil
     )
+    let voiceCallItem = SBUActionSheetItem(
+        title: SBUStringSet.VoiceCall,
+        tag: MediaResourceType.voiceCall.rawValue,
+        completionHandler: nil
+    )
+    let videoCallItem = SBUActionSheetItem(
+        title: SBUStringSet.VideoCall,
+        tag: MediaResourceType.videoCall.rawValue,
+        completionHandler: nil
+    )
+    let contactCardItem = SBUActionSheetItem(
+        title: "个人名片",
+        tag: MediaResourceType.contactCard.rawValue,
+        completionHandler: nil
+    )
     let cancelItem = SBUActionSheetItem(title: SBUStringSet.Cancel, completionHandler: nil)
 
     @SBUThemeWrapper(theme: SBUTheme.messageInputTheme)
@@ -459,7 +474,11 @@ open class SBUMessageInputView: SBUView, SBUActionSheetDelegate, UITextViewDeleg
             // Start a new mode
             switch newValue {
             case .edit(let message):
-                self.startEditMode(text: "")
+                var text = ""
+                if let textMessage = message.content as? JTextMessage {
+                    text = textMessage.content
+                }
+                self.startEditMode(text: text)
             case .quoteReply(let message):
                 self.startQuoteReplyMode(message: message)
             case .none:
@@ -477,7 +496,7 @@ open class SBUMessageInputView: SBUView, SBUActionSheetDelegate, UITextViewDeleg
         
         switch mode {
         case .edit:
-            guard let message = message as? JMessage else { break }
+            guard let message = message else { break }
             self.option = .edit(message)
         case .quoteReply:
             guard let message = message else { break }
@@ -769,6 +788,18 @@ open class SBUMessageInputView: SBUView, SBUActionSheetDelegate, UITextViewDeleg
             with: theme.buttonTintColor,
             to: SBUIconSetType.Metric.iconActionSheetItem
         )
+        self.voiceCallItem.image = SBUIconSetType.iconVoiceMessageOn.image(
+            with: theme.buttonTintColor,
+            to: SBUIconSetType.Metric.iconActionSheetItem
+        )
+        self.videoCallItem.image = SBUIconSetType.iconCamera.image(
+            with: theme.buttonTintColor,
+            to: SBUIconSetType.Metric.iconActionSheetItem
+        )
+        self.contactCardItem.image = SBUIconSetType.iconUser.image(
+            with: theme.buttonTintColor,
+            to: SBUIconSetType.Metric.iconActionSheetItem
+        )
         self.cancelItem.color = theme.buttonTintColor
         
         self.divider.backgroundColor = theme.channelViewDividerColor
@@ -941,6 +972,28 @@ open class SBUMessageInputView: SBUView, SBUActionSheetDelegate, UITextViewDeleg
             self.placeholderLabel.text = SBUStringSet.MessageInput_Text_Placeholder
         }
     }
+    
+    public func setTextViewInitialText(content: String) {
+        guard let textView = self.textView else {
+            return
+        }
+        
+        textView.font = self.theme.textFieldFont
+        textView.text = content
+        
+        self.placeholderLabel.isHidden = !textView.text.isEmpty
+        self.updateTextViewHeight()
+        
+        let text = textView.text ?? ""
+        if self.editView.isHidden {
+            
+            self.sendButton?.isHidden = (!showsSendButton &&
+                text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            self.voiceMessageButton?.isHidden = !(showsVoiceMessageButton && (self.sendButton?.isHidden ?? false))
+            self.textViewTrailingPaddingView.isHidden = (self.sendButton?.isHidden == true) && (self.voiceMessageButton?.isHidden == true)
+            self.layoutIfNeeded()
+        }
+    }
 
     // MARK: - Action
     
@@ -966,7 +1019,10 @@ open class SBUMessageInputView: SBUView, SBUActionSheetDelegate, UITextViewDeleg
         
         items.append(self.cameraItem)
         items.append(self.libraryItem)
-        items.append(self.documentItem)        
+        items.append(self.documentItem)       
+        items.append(self.voiceCallItem)
+        items.append(self.videoCallItem)
+        items.append(self.contactCardItem)
         return items
     }
     
@@ -1077,6 +1133,44 @@ open class SBUMessageInputView: SBUView, SBUActionSheetDelegate, UITextViewDeleg
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     self.delegate?.messageInputView(self, didSelectResource: type)
+                }
+            }
+        case .voiceCall:
+            SBUPermissionManager.shared.requestRecordAcess() { [weak self] in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.delegate?.messageInputView(self, didSelectResource: type)
+                }
+            } onDenied: { [weak self] in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.delegate?.messageInputView(self, didSelectResource: type)
+                }
+            }
+        case .videoCall:
+            SBUPermissionManager.shared.requestCameraAccess(for: .video) {
+                SBUPermissionManager.shared.requestRecordAcess() { [weak self] in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.messageInputView(self, didSelectResource: type)
+                    }
+                } onDenied: {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.messageInputView(self, didSelectResource: type)
+                    }
+                }
+            } onDenied: { [weak self] in
+                SBUPermissionManager.shared.requestRecordAcess() { [weak self] in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.messageInputView(self, didSelectResource: type)
+                    }
+                } onDenied: {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.messageInputView(self, didSelectResource: type)
+                    }
                 }
             }
         default:

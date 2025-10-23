@@ -12,14 +12,32 @@ import JuggleIM
 class GroupListViewController: BaseTableListViewController {
     var groups: [JGroupInfo]?
     
-    override func loadView() {
-        super.loadView()
-        loadGroups()
+    lazy var rightBarButton: UIBarButtonItem = {
+        let rightItem =  UIBarButtonItem(
+            image: SBUIconSetType.iconCreate.image(to: SBUIconSetType.Metric.defaultIconSize),
+            style: .plain,
+            target: self,
+            action: #selector(onClickMenu)
+        )
+        rightItem.setTitleTextAttributes([.font : SBUFontSet.button2], for: .normal)
+        return rightItem
+    }()
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        self.navigationItem.rightBarButtonItem = rightBarButton
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.tabBarController?.tabBar.isHidden = false
+        loadGroups()
+    }
+    
+    override func configNavigationItem() {
+        super.configNavigationItem()
+        let leftButton = SBUBarButtonItem.backButton(target: self, selector: #selector(onTapLeftBarButton))
+        self.navigationItem.leftBarButtonItem = leftButton
+        self.titleView.text = "群组"
     }
     
     override func configTableView() {
@@ -44,6 +62,15 @@ class GroupListViewController: BaseTableListViewController {
                 }
             }
         })
+    }
+    
+    @objc func onTapLeftBarButton() {
+        self.navigationController?.popViewController(animated: true)
+    }
+    
+    @objc func onClickMenu() {
+        let createGroupVC = CreateGroupViewController()
+        self.navigationController?.pushViewController(createGroupVC, animated: true)
     }
 }
 
@@ -84,7 +111,6 @@ extension GroupListViewController: UITableViewDataSource, UITableViewDelegate {
         let defaultConversationInfo = JConversationInfo()
         defaultConversationInfo.conversation = conversation
         let conversationInfo = JIM.shared().conversationManager.getConversationInfo(conversation) ?? defaultConversationInfo
-        self.tabBarController?.tabBar.isHidden = true
         let channelVC = ChannelViewController.init(conversationInfo: conversationInfo)
         self.navigationController?.pushViewController(channelVC, animated: true)
     }

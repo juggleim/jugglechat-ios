@@ -284,19 +284,27 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
     /// - Parameter message: `JMessage` object
     /// - Since: 1.1.0
     open func showEmojiListModal(message: JMessage) {
-//        let emojiListVC = SBUEmojiListViewController(message: message)
-//        emojiListVC.modalPresentationStyle = .custom
-//        emojiListVC.transitioningDelegate = self
-//
-//        emojiListVC.emojiTapHandler = { [weak self] emojiKey, setSelect in
-//            guard let self = self else { return }
-//            self.baseViewModel?.setReaction(
-//                message: message,
-//                emojiKey: emojiKey,
-//                didSelect: setSelect
-//            )
-//        }
-//        self.present(emojiListVC, animated: true)
+        var reaction: JMessageReaction? = nil
+        self.baseViewModel?.reactionList.forEach { r in
+            if r.messageId == message.messageId {
+                reaction = r
+                return
+            }
+        }
+        
+        let emojiListVC = SBUEmojiListViewController(message: message, reaction: reaction)
+        emojiListVC.modalPresentationStyle = .custom
+        emojiListVC.transitioningDelegate = self
+
+        emojiListVC.emojiTapHandler = { [weak self] emojiKey, setSelect in
+            guard let self = self else { return }
+            self.baseViewModel?.setReaction(
+                message: message,
+                emojiKey: emojiKey,
+                didSelect: setSelect
+            )
+        }
+        self.present(emojiListVC, animated: true)
     }
     
     // MARK: - TableView
@@ -570,6 +578,7 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
         
         // Verify that the UIViewController is currently visible on the screen
         let needsToLayout = self.isViewLoaded && (self.view.window != nil)
+        SBULog.info("SBUBaseChannelViewController before reloadTableView")
         baseListComponent.reloadTableView(needsToLayout: needsToLayout)
         
         guard let lastSeenIndexPath = self.lastSeenIndexPath else {
@@ -675,30 +684,36 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapMessage message: JMessage, forRowAt indexPath: IndexPath) {
         self.dismissKeyboard()
         
-        if let imageMessage = message.content as? JImageMessage {
+        switch message.content {
+        case is JTextMessage:
+            guard message.messageState == .fail else {
+                return
+            }
+            self.baseViewModel?.resendMessage(failedMessage: message)
+//            self.baseChannelModuleDidTapScrollToButton(listComponent, animated: true)
+        case is JImageMessage, is JVideoMessage, is JFileMessage:
             switch message.messageState {
             case .uploading, .sending, .unknown:
                 break
             case .fail:
-                //TODO: resend
-                break
+                self.baseViewModel?.resendMessage(failedMessage: message)
+//                self.baseChannelModuleDidTapScrollToButton(listComponent, animated: true)
             case .sent:
                 self.openFile(message: message)
-            }
-        }
-        
-        if let videoMessage = message.content as? JVideoMessage {
-            switch message.messageState {
-            case .uploading, .sending, .unknown:
+            default:
                 break
-            case .fail:
-                //TODO: resend
-                break
-            case .sent:
-                self.openFile(message: message)
             }
+        case is ContactCardMessage:
+            guard let contactCard = message.content as? ContactCardMessage else {
+                return
+            }
+            let vc = PersonDetailViewController()
+            vc.userId = contactCard.userId
+            self.navigationController?.pushViewController(vc, animated: true)
+        default:
+            break
         }
-        
+                
 //        switch message.content {
 //
 ////        case let textMessage as JTextMessage:
@@ -731,33 +746,49 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
 //        }
     }
     
-    open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didLongTapMessage message: JMessage, forRowAt indexPath: IndexPath) {
+    open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didLongTapMessage message: JMessage, reaction: JMessageReaction? = nil, forRowAt indexPath: IndexPath) {
         self.view.endEditing(true)
-        listComponent.showMessageMenu(on: message, forRowAt: indexPath)
+        listComponent.showMessageMenu(on: message, reaction: reaction, forRowAt: indexPath)
     }
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapVoiceMessage JMessage: JMessage, cell: UITableViewCell, forRowAt indexPath: IndexPath) {}
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapSaveMessage message: JMessage) {
-//        guard let JMessage = message as? JMessage else { return }
-//        SBUDownloadManager.save(JMessage: JMessage, parent: self)
+        SBUDownloadManager.save(message: message, parent: self)
     }
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapCopyMessage message: JMessage) {
-//        guard let userMessage = message as? UserMessage else { return }
-//        let pasteboard = UIPasteboard.general
-//        pasteboard.string = userMessage.message
+        guard let textMessage = message.content as? JTextMessage else {
+            return
+        }
+        let pasteboard = UIPasteboard.general
+        pasteboard.string = textMessage.content
     }
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapEditMessage message: JMessage) {
-
+        self.setMessageInputViewMode(.edit, message: message)
+    }
+    
+    open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapForwardMessage message: JMessage) {
+        DispatchQueue.main.asyncAfter(deadline: .now()+0.2) {
+            let vc = ForwardSelectViewController.init(messageContent: message.content)
+            vc.delegate = self
+            let navi = UINavigationController.init(rootViewController: vc)
+            navi.modalPresentationStyle = .fullScreen
+            self.present(navi, animated: true)
+        }
     }
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapDeleteMessage message: JMessage) {
         self.baseViewModel?.deleteMessage(message: message)
     }
     
+    open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapRecallMessage message: JMessage) {
+        self.baseViewModel?.recallMessage(message: message)
+    }
+    
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapReplyMessage message: JMessage) {
+        self.setMessageInputViewMode(.quoteReply, message: message)
     }
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didDismissMenuForCell cell: UITableViewCell) {
@@ -819,7 +850,7 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
     }
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapDeleteFailedMessage failedMessage: JMessage) {
-        self.baseViewModel?.deleteResendableMessage(failedMessage, needReload: true)
+        self.baseViewModel?.deleteMessage(message: failedMessage)
     }
     
     open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, didTapUserProfile user: SBUUser) {
@@ -909,6 +940,10 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
         self.baseViewModel?.fullMessageList ?? []
     }
     
+    open func baseChannelModule(_ listComponent: SBUBaseChannelModule.List, reactionListInTableView tableView: UITableView) -> [JMessageReaction] {
+        self.baseViewModel?.reactionList ?? []
+    }
+    
     open func baseChannelModule(
         _ listComponent: SBUBaseChannelModule.List,
         hasNextInTableView tableView: UITableView
@@ -976,6 +1011,33 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
             default:
                 self.showPermissionAlert(forType: .camera)
             }
+        case .voiceCall:
+            switch SBUPermissionManager.shared.currentRecordAccessStatus {
+            case .granted:
+                if self.baseViewModel?.conversationInfo?.conversation.conversationType == .private {
+                    self.startSingleVoiceCall()
+                } else {
+                    self.selectCallMembers(type: .voiceCall)
+                }
+            default:
+                self.showPermissionAlert(forType: .record)
+            }
+        case .videoCall:
+            if SBUPermissionManager.shared.currentRecordAccessStatus != .granted {
+                self.showPermissionAlert(forType: .record)
+            } else if SBUPermissionManager.shared.currentCameraAccessStatus != .authorized {
+                self.showPermissionAlert(forType: .camera)
+            } else {
+                if self.baseViewModel?.conversationInfo?.conversation.conversationType == .private {
+                    self.startSingleVideoCall()
+                } else {
+                    self.selectCallMembers(type: .videoCall)
+                }
+            }
+        case .contactCard:
+            let vc = SelectSingleFriendViewController()
+            vc.delegate = self
+            self.navigationController?.pushViewController(vc, animated: true)
         default:
             self.showPhotoLibraryPicker()
         }
@@ -1049,6 +1111,25 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
         }
     }
     
+    open func startSingleVoiceCall() {
+        let callSession = JIM.shared().callManager.startSingleCall(self.baseViewModel?.conversationInfo?.conversation.conversationId, mediaType: .voice, extra: "extra", delegate: nil)
+        CallCenter.shared().startSingleCall(callSession)
+    }
+    
+    open func startSingleVideoCall() {
+        let callSession = JIM.shared().callManager.startSingleCall(self.baseViewModel?.conversationInfo?.conversation.conversationId, mediaType: .video, extra: nil, delegate: nil)
+        CallCenter.shared().startSingleCall(callSession)
+    }
+    
+    open func selectCallMembers(type: GroupMemberSelectType) {
+        let selectMemberVC = GroupMemberSelectViewController()
+        selectMemberVC.type = type
+        selectMemberVC.groupId = self.baseViewModel?.conversationInfo?.conversation.conversationId ?? ""
+        selectMemberVC.delegate = self
+        let root = UINavigationController(rootViewController: selectMemberVC)
+        self.present(root, animated: true)
+    }
+    
     // Shows permission request alert.
     /// - Since: 3.0.0
     open func showPermissionAlert(forType permissionType: SBUPermissionManager.PermissionType = .photoLibrary) {
@@ -1064,9 +1145,8 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
         _ inputComponent: SBUBaseChannelModule.Input,
         didTapEdit text: String
     ) {
-//        guard let message = self.baseViewModel?.inEditingMessage else { return }
-//
-//        self.baseViewModel?.updateUserMessage(message: message, text: text)
+        guard let message = self.baseViewModel?.inEditingMessage else { return }
+        self.baseViewModel?.updateMessage(message: message, text: text)
     }
     
     open func baseChannelModule(
@@ -1089,7 +1169,7 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
         didChangeMode mode: SBUMessageInputMode, 
         message: JMessage?
     ) {
-//        baseViewModel?.inEditingMessage = message as? UserMessage
+        baseViewModel?.inEditingMessage = message
     }
     
     open func baseChannelModule(
@@ -1396,4 +1476,65 @@ open class SBUBaseChannelViewController: SBUBaseViewController, SBUBaseChannelVi
                                       oneTimetheme: SBUComponentTheme? = nil) {
         self.baseListComponent?.showDeleteMessageAlert(on: message, oneTimeTheme: oneTimetheme)
     }
+}
+
+extension SBUBaseChannelViewController: GroupMemberSelectVCDelegate {
+    public func membersDidSelect(type: GroupMemberSelectType, members: [JUserInfo]) {
+        var userIds: [String] = []
+        for member in members {
+            userIds.append(member.userId)
+        }
+        var mediaType: JCallMediaType = .voice
+        if type == .videoCall {
+            mediaType = .video
+        }
+        let extraDic = ["conversationType": self.baseViewModel?.conversationInfo?.conversation.conversationType.rawValue ?? 0, "conversationId": self.baseViewModel?.conversationInfo?.conversation.conversationId ?? ""] as [String : Any]
+        var extra = ""
+        if let data = try?  JSONSerialization.data(withJSONObject: extraDic), let jsonStr = String(data: data, encoding: .utf8) {
+            extra = jsonStr
+        }
+        JIM.shared().callManager.getConversationCallInfo(self.baseViewModel?.conversationInfo?.conversation) { callInfo in
+            if let callInfo = callInfo {
+                let callSession = JIM.shared().callManager.joinCall(callInfo.callId, delegate: nil)
+                CallCenter.shared().startMultiCall(callSession, groupId: self.baseViewModel?.conversationInfo?.conversation.conversationId)
+            } else {
+                let callSession = JIM.shared().callManager.startMultiCall(userIds, mediaType: mediaType, conversation: self.baseViewModel?.conversationInfo?.conversation, extra: extra, delegate: nil)
+                CallCenter.shared().startMultiCall(callSession, groupId: self.baseViewModel?.conversationInfo?.conversation.conversationId)
+            }
+        } error: { code in
+            
+        }
+
+//        let callSession = JIM.shared().callManager.startMultiCall(userIds, mediaType: mediaType, conversation: self.baseViewModel?.conversationInfo?.conversation, extra: extra, delegate: nil)
+//        CallCenter.shared().startMultiCall(callSession, groupId: self.baseViewModel?.conversationInfo?.conversation.conversationId)
+    }
+}
+
+extension SBUBaseChannelViewController: SelectSingleFriendVCDelegate {
+    func friendDidSelect(_ user: JCUser) {
+        let contactCard = ContactCardMessage(userInfo: user)
+        self.baseViewModel?.sendMessage(content: contactCard)
+    }
+}
+
+extension SBUBaseChannelViewController: ForwardSelectViewControllerDelegate {
+    public func messageWillForward(_ message: JMessage) {
+        if message.conversation.isEqual(self.baseViewModel?.conversationInfo?.conversation) {
+            self.baseViewModel?.upsertMessagesInList(messages: [message], needReload: true)
+        }
+    }
+    
+    public func messageDidForward(_ message: JMessage) {
+        if message.conversation.isEqual(self.baseViewModel?.conversationInfo?.conversation) {
+            self.baseViewModel?.upsertMessagesInList(messages: [message], needReload: true)
+        }
+    }
+    
+    public func messageDidForwardFail(_ message: JMessage, errorCode code: JErrorCode) {
+        if message.conversation.isEqual(self.baseViewModel?.conversationInfo?.conversation) {
+            self.baseViewModel?.upsertMessagesInList(messages: [message], needReload: true)
+        }
+    }
+    
+    
 }

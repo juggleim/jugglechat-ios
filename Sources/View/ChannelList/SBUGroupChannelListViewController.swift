@@ -208,9 +208,8 @@ open class SBUGroupChannelListViewController: SBUBaseChannelListViewController, 
         self.showChannel(conversationInfo: channel)
     }
     
-    open func baseChannelListModule(
-        _ listComponent: SBUBaseChannelListModule.List,
-        didDetectPreloadingPosition indexPath: IndexPath
+    open func baseChannelListModuledidDetectPreloading(
+        _ listComponent: SBUBaseChannelListModule.List
     ) {
         self.viewModel?.loadNextChannelList(reset: false)
     }
@@ -228,6 +227,22 @@ open class SBUGroupChannelListViewController: SBUBaseChannelListViewController, 
         didSelectLeave conversationInfo: JConversationInfo
     ) {
         self.viewModel?.deleteConversationInfo(conversationInfo)
+    }
+    
+    open func groupChannelListModule(
+        _ listComponent: SBUGroupChannelListModule.List,
+        didSelectMute isMute:Bool,
+        conversationInfo: JConversationInfo
+    ) {
+        self.viewModel?.mute(conversationInfo, isMute: isMute)
+    }
+    
+    open func groupChannelListModule(
+        _ listComponent: SBUGroupChannelListModule.List,
+        didSelectUnread isUnread: Bool,
+        conversationInfo: JConversationInfo
+    ) {
+        self.viewModel?.setUnread(conversationInfo, isUnread: isUnread)
     }
     
     // MARK: - SBUGroupChannelListModuleListDataSource

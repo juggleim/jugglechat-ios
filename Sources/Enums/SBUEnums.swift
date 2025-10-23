@@ -121,6 +121,10 @@ public enum UserListType: Hashable {
     case addFriend
     case friendList
     case createGroup
+    case friendApplication
+    case newFriend
+    case group
+    case chatroom
 }
 
 /// This is an enumeration used in `UserListViewController` to load user list by type.
@@ -187,6 +191,9 @@ public enum MediaResourceType: Int {
     case camera
     case library
     case document
+    case voiceCall
+    case videoCall
+    case contactCard
     case unknown
     case delete
 }

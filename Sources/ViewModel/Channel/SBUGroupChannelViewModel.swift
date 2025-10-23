@@ -68,6 +68,7 @@ open class SBUGroupChannelViewModel: SBUBaseChannelViewModel {
     var debouncer: SBUDebouncer?
     var suggestedMemberList: [SBUUser]?
     var hasPreviousMessage = true
+    var groupInfo: JCGroupInfo?
     
     // MARK: - LifeCycle
     public init(conversationInfo: JConversationInfo? = nil,
@@ -87,11 +88,12 @@ open class SBUGroupChannelViewModel: SBUBaseChannelViewModel {
         self.debouncer = SBUDebouncer(
             debounceTime: SBUGlobals.userMentionConfig?.debounceTime ?? SBUDebouncer.defaultTime
         )
-        JIM.shared().conversationManager.clearUnreadCount(by: conversationInfo?.conversation) {
-        } error: { errorCode in
-        }
-        JIM.shared().messageManager.add(self)
+        self.markAsRead()
+        JIM.shared().messageManager.add(self as JMessageDelegate)
+        JIM.shared().messageManager.add(self as JMessageReadReceiptDelegate)
+        JIM.shared().callManager.add(self as JConversationCallDelegate)
         self.loadPrevMessages()
+        self.loadGroupInfo()
     }
     
     // MARK: - Message
@@ -193,16 +195,45 @@ open class SBUGroupChannelViewModel: SBUBaseChannelViewModel {
         let option = JGetMessageOptions()
         option.startTime = startTime
         option.count = Int32(defaultFetchLimit)
-        JIM.shared().messageManager.getMessages(self.conversationInfo?.conversation, direction: .older, option: option) { localMessageList, errorCode in
-            SBULog.info("[Request] Prev message list local count is \(localMessageList?.count ?? 0)")
-            self.upsertMessagesInList(messages: localMessageList, needReload: true)
-        } remoteMessageBlock: { remoteMessageList, timestamp, hasMore, errorCode in
-            SBULog.info("[Request] Prev message list remote count is \(remoteMessageList?.count ?? 0), hasMore is \(hasMore)")
-            self.upsertMessagesInList(messages: remoteMessageList, needReload: true)
+        JIM.shared().messageManager.getMessages(self.conversationInfo?.conversation, direction: .older, option: option) { messageList, timestamp, hasMore, errorCode in
+            SBULog.info("[Request] Prev message list count is \(messageList?.count ?? 0), hasMore is \(hasMore), errorCode is \(errorCode.rawValue)")
+            var messageIdList:[String] = []
+            if let messageList = messageList {
+                for message in messageList {
+                    if let messageId = message.messageId {
+                        messageIdList.append(messageId)
+                    }
+                }
+            }
+            
+            let reactionList = JIM.shared().messageManager.getCachedMessagesReaction(messageIdList)
+            self.updateReaction(reactionList: reactionList)
+            self.upsertMessagesInList(messages: messageList, needReload: true)
+            self.loadMessageReaction(messages: messageList)
+            if let messageList = messageList {
+                self.sendReceipt(messageList)
+            }
             self.hasPreviousMessage = hasMore
             self.prevLock.unlock()
-            SBULog.info("Prev message list remote unlock")
+            SBULog.info("Prev message list unlock")
         }
+        
+//        JIM.shared().messageManager.getMessages(self.conversationInfo?.conversation, direction: .older, option: option) { localMessageList, errorCode in
+//            SBULog.info("[Request] Prev message list local count is \(localMessageList?.count ?? 0)")
+//            self.upsertMessagesInList(messages: localMessageList, needReload: true)
+//            if let localMessageList = localMessageList {
+//                self.sendReceipt(localMessageList)
+//            }
+//        } remoteMessageBlock: { remoteMessageList, timestamp, hasMore, errorCode in
+//            SBULog.info("[Request] Prev message list remote count is \(remoteMessageList?.count ?? 0), hasMore is \(hasMore)")
+//            self.upsertMessagesInList(messages: remoteMessageList, needReload: true)
+//            if let remoteMessageList = remoteMessageList {
+//                self.sendReceipt(remoteMessageList)
+//            }
+//            self.hasPreviousMessage = hasMore
+//            self.prevLock.unlock()
+//            SBULog.info("Prev message list remote unlock")
+//        }
 
 //        JIM.shared().messageManager.getLocalAndRemoteMessages(from: self.conversationInfo?.conversation, startTime: startTime, count: Int32(defaultFetchLimit), direction: .older) { localMessageList, needRemote in
 //            self.upsertMessagesInList(messages: localMessageList, needReload: true)
@@ -271,7 +302,37 @@ open class SBUGroupChannelViewModel: SBUBaseChannelViewModel {
         super.deleteResendableMessage(message, needReload: needReload)
     }
     
-
+    // MARK: - Message related
+    public func markAsRead() {
+        JIM.shared().conversationManager.clearUnreadCount(by: self.conversationInfo?.conversation) {
+        } error: { code in
+            if code != .none {
+                self.delegate?.didReceiveError(code)
+            }
+        }
+    }
+    
+    func sendReceipt(_ messages: [JMessage]) {
+        if self.conversationInfo?.conversation.conversationType != .private {
+            return
+        }
+        var messageIds: [String] = []
+        //只有单聊发，只有收到的消息发，只有没有 hasRead 发
+        for message in messages {
+            if message.direction == .receive && !message.hasRead {
+                messageIds.append(message.messageId)
+            }
+        }
+        if messageIds.count == 0 {
+            return
+        }
+        JIM.shared().messageManager.sendReadReceipt(messageIds, in: self.conversationInfo?.conversation) {
+        } error: { code in
+            if code != .none {
+                self.delegate?.didReceiveError(code)
+            }
+        }
+    }
     
     // MARK: - Typing
 //    public func startTypingMessage() {
@@ -325,68 +386,37 @@ open class SBUGroupChannelViewModel: SBUBaseChannelViewModel {
     /// Loads mentionable member list.
     /// When the suggested list is received, it calls `groupChannelViewModel(_:didReceiveSuggestedMembers:)` delegate method.
     /// - Parameter filterText: The text that is used as filter while searching for the suggested mentions.
-//    public func loadSuggestedMentions(with filterText: String) {
-//        self.debouncer?.add { [weak self] in
-//            guard let self = self else { return }
-//
-//            if let channel = self.channel as? GroupChannel {
-//                if channel.isSuper {
-//                    guard let config = SBUGlobals.userMentionConfig else {
-//                        SBULog.error("`SBUGlobals.userMentionConfig` is `nil`")
-//                        return
-//                    }
-//
-//                    guard SendbirdUI.config.groupChannel.channel.isMentionEnabled else {
-//                        SBULog.error("User mention features are disabled. See `SBUGlobals.isMentionEnabled` for more information")
-//                        return
-//                    }
-//
-//                    let params = MemberListQueryParams()
-//                    params.nicknameStartsWithFilter = filterText
-//
-//                    // +1 is buffer for when the current user is included in the search results
-//                    params.limit = UInt(config.suggestionLimit) + 1
-//                    self.query = channel.createMemberListQuery(params: params)
-//
-//                    self.query?.loadNextPage { [weak self] members, _ in
-//                        guard let self = self else { return }
-//                        self.suggestedMemberList = SBUUser.convertUsers(members)
-//                        self.delegate?.groupChannelViewModel(
-//                            self,
-//                            didReceiveSuggestedMentions: self.suggestedMemberList
-//                        )
-//                    }
-//                } else {
-//                    guard channel.members.count > 0 else {
-//                        self.suggestedMemberList = nil
-//                        self.delegate?.groupChannelViewModel(self, didReceiveSuggestedMentions: nil)
-//                        return
-//                    }
-//
-//                    let sortedMembers = channel.members.sorted { $0.nickname.lowercased() < $1.nickname.lowercased() }
-//                    let matchedMembers = sortedMembers.filter {
-//                        return $0.nickname.lowercased().hasPrefix(filterText.lowercased())
-//                    }
-//                    let memberCount = matchedMembers.count
-//                    // +1 is buffer for when the current user is included in the search results
-//                    let limit = (SBUGlobals.userMentionConfig?.suggestionLimit ?? 0) + 1
-//                    let splitCount = min(memberCount, Int(limit))
-//
-//                    let resultMembers = Array(matchedMembers[0..<splitCount])
-//                    self.suggestedMemberList = SBUUser.convertUsers(resultMembers)
-//                    self.delegate?.groupChannelViewModel(
-//                        self,
-//                        didReceiveSuggestedMentions: self.suggestedMemberList
-//                    )
-//                }
-//            }
-//        }
-//    }
-//
-//    /// Cancels loading the suggested mentions.
-//    public func cancelLoadingSuggestedMentions() {
-//        self.debouncer?.cancel()
-//    }
+    public func loadSuggestedMentions(with filterText: String) {
+        self.debouncer?.add { [weak self] in
+            guard let self = self else { return }
+            guard let groupInfo = self.groupInfo, groupInfo.members.count > 0 else {
+                self.suggestedMemberList = nil
+                self.delegate?.groupChannelViewModel(self, didReceiveSuggestedMentions: nil)
+                return
+            }
+
+            let sortedMembers = groupInfo.members.sorted { $0.userName?.lowercased() ?? "" < $1.userName?.lowercased() ?? "" }
+            let matchedMembers = sortedMembers.filter {
+                return $0.userName?.lowercased().hasPrefix(filterText.lowercased()) ?? false
+            }
+            let memberCount = matchedMembers.count
+            // +1 is buffer for when the current user is included in the search results
+            let limit = 16//(SBUGlobals.userMentionConfig?.suggestionLimit ?? 0) + 1
+            let splitCount = min(memberCount, Int(limit))
+
+            let resultMembers = Array(matchedMembers[0..<splitCount])
+            self.suggestedMemberList = SBUUser.convertUsers(resultMembers)
+            self.delegate?.groupChannelViewModel(
+                self,
+                didReceiveSuggestedMentions: self.suggestedMemberList
+            )
+        }
+    }
+
+    /// Cancels loading the suggested mentions.
+    public func cancelLoadingSuggestedMentions() {
+        self.debouncer?.cancel()
+    }
     
     // MARK: - Common
     public override func hasPrevious() -> Bool {
@@ -394,33 +424,216 @@ open class SBUGroupChannelViewModel: SBUBaseChannelViewModel {
     }
     
     override func reset() {
-//        self.markAsRead()
+        self.markAsRead()
         
         super.reset()
+    }
+    
+    // MARK: - Private
+    private func loadGroupInfo() {
+        guard let conversation =  self.conversationInfo?.conversation,
+              conversation.conversationType == .group else {
+            return
+        }
+        HttpManager.shared.getGroupInfo(groupId: conversation.conversationId) { code , groupInfo in
+            if code == 0 {
+                self.groupInfo = groupInfo
+            }
+        }
     }
 }
 
 extension SBUGroupChannelViewModel : JMessageDelegate {
     public func messageDidReceive(_ message: JMessage!) {
+        SBULog.info("messageDidReceive")
         if !message.conversation.isEqual(self.conversationInfo?.conversation) {
             return
         }
-        self.upsertMessagesInList(messages: [message], needReload: true)
         
-        JIM.shared().conversationManager.clearUnreadCount(by: conversationInfo?.conversation) {
-        } error: { code in
+        guard let conversationInfo = self.conversationInfo else {
+            return
         }
+        
+        if let lastMessage = conversationInfo.lastMessage, message.timestamp <= lastMessage.timestamp {
+            return
+        }
+        
+        if message.contentType == JTextMessage.contentType() {
+            var streamId = ""
+            if let textMessage = message.content as? JTextMessage,
+               !textMessage.extra.isEmpty,
+               let jsonData = textMessage.extra.data(using: .utf8)
+            {
+                if let jsonDic = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String],
+                   let stream = jsonDic["stream_msg_id"] {
+                    streamId = stream
+                }
+            }
+            if !streamId.isEmpty, let index = SBUUtils.findIndex(ofStreamMessage: streamId, in: self.messageList) {
+                self.messageList.remove(at: index)
+            }
+        }
+        
+        if let streamText = message.content as? StreamTextMessage,
+           let streamId = streamText.streamId {
+            var streamContent = ""
+            if !streamId.isEmpty, let index = SBUUtils.findIndex(ofStreamMessage: streamId, in: self.messageList) {
+                let foundStreamTextMessage = self.messageList[index]
+                if let foundStreamText = foundStreamTextMessage.content as? StreamTextMessage,
+                   let content = foundStreamText.content {
+                    streamContent = content
+                }
+                self.messageList.remove(at: index)
+            }
+            streamText.content = streamContent.appending(streamText.content ?? "")
+        }
+        
+        self.upsertMessagesInList(messages: [message], needReload: true)
+        self.sendReceipt([message])
+        self.markAsRead()
     }
     
     public func messageDidRecall(_ message: JMessage!) {
-        
+        if !message.conversation.isEqual(self.conversationInfo?.conversation) {
+            return
+        }
+        self.updateMessagesInList(messages: [message], needReload: true)
+    }
+    
+    public func messageDidUpdate(_ message: JMessage!) {
+        if !message.conversation.isEqual(self.conversationInfo?.conversation) {
+            return
+        }
+        self.updateMessagesInList(messages: [message], needReload: true)
     }
     
     public func messageDidDelete(_ conversation: JConversation!, clientMsgNos: [NSNumber]!) {
-        
+        if !conversation.isEqual(self.conversationInfo?.conversation) {
+            return
+        }
+        if clientMsgNos.count > 0 {
+            var int64List: [Int64] = []
+            for clientMsgNo in clientMsgNos {
+                int64List.append(clientMsgNo.int64Value)
+            }
+            self.deleteMessagesInList(clientMsgNos: int64List, needReload: true)
+        }
     }
     
     public func messageDidClear(_ conversation: JConversation!, timestamp: Int64, senderId: String!) {
+        if !conversation.isEqual(self.conversationInfo?.conversation) {
+            return
+        }
+        self.reset()
+        self.clearMessageList()
+        self.sortAllMessageList(needReload: true)
+    }
+    
+    public func messageReactionDidAdd(_ reaction: JMessageReaction!, in conversation: JConversation!) {
+        if !conversation.isEqual(self.conversationInfo?.conversation) {
+            return
+        }
+        if self.messageList.contains(where: { $0.messageId == reaction.messageId}) {
+            guard let messages = JIM.shared().messageManager.getMessagesByMessageIds([reaction.messageId]),
+                  messages.count > 0,
+                  let message = messages.first else {
+                return
+            }
+            if let index = SBUUtils.findIndex(ofReaction: reaction, in: self.reactionList) {
+                self.reactionList[index].itemList = mergeReaction(oldItemList: self.reactionList[index].itemList, newItemList: reaction.itemList)
+            } else {
+                self.reactionList.append(reaction)
+            }
+            self.updateMessagesInList(messages: [message], needReload: true)
+        }
+    }
+    
+
+    public func messageReactionDidRemove(_ reaction: JMessageReaction!, in conversation: JConversation!) {
+        if !conversation.isEqual(self.conversationInfo?.conversation) {
+            return
+        }
+        if self.messageList.contains(where: { $0.messageId == reaction.messageId}) {
+            guard let messages = JIM.shared().messageManager.getMessagesByMessageIds([reaction.messageId]),
+                  messages.count > 0,
+                  let message = messages.first else {
+                return
+            }
+            if let index = SBUUtils.findIndex(ofReaction: reaction, in: self.reactionList) {
+                self.reactionList[index].itemList = removeReaction(oldItemList: self.reactionList[index].itemList, newItemList: reaction.itemList)
+            }
+            
+            self.updateMessagesInList(messages: [message], needReload: true)
+        }
+    }
+    
+    private func mergeReaction(oldItemList: [JMessageReactionItem], newItemList: [JMessageReactionItem]) -> [JMessageReactionItem] {
+        var result: [JMessageReactionItem] = []
+        var needMerge = false
+        result.append(contentsOf: oldItemList)
+        for newItem in newItemList {
+            needMerge = false
+            for oldItem in result {
+                if oldItem.reactionId == newItem.reactionId {
+                    needMerge = true
+                    var userInfoList = oldItem.userInfoList
+                    for newUserInfo in newItem.userInfoList {
+                        if userInfoList.contains(where: { $0.userId == newUserInfo.userId}) {
+                            continue
+                        }
+                        userInfoList.append(newUserInfo)
+                    }
+                    oldItem.userInfoList = userInfoList
+                    break
+                }
+            }
+            if !needMerge {
+                result.append(newItem)
+            }
+        }
+        return result
+    }
+    
+    private func removeReaction(oldItemList: [JMessageReactionItem], newItemList: [JMessageReactionItem]) -> [JMessageReactionItem] {
+        var result: [JMessageReactionItem] = []
+        result.append(contentsOf: oldItemList)
+        for newItem in newItemList {
+            for oldItem in result {
+                if oldItem.reactionId == newItem.reactionId {
+                    var userInfoList = oldItem.userInfoList
+                    for newUserInfo in newItem.userInfoList {
+                        if let index = SBUUtils.findIndex(ofUser: newUserInfo, in: userInfoList) {
+                            userInfoList.remove(at: index)
+                        }
+                    }
+                    oldItem.userInfoList = userInfoList
+                    break
+                }
+            }
+        }
+        result = result.filter { !$0.userInfoList.isEmpty }
+        return result
+    }
+}
+
+extension SBUGroupChannelViewModel: JMessageReadReceiptDelegate {
+    public func messagesDidRead(_ messageIds: [String]!, in conversation: JConversation!) {
+        if !conversation.isEqual(self.conversationInfo?.conversation) {
+            return
+        }
+        let messages = JIM.shared().messageManager.getMessagesByMessageIds(messageIds)
+        if let messages = messages, messages.count > 0 {
+            self.upsertMessagesInList(messages: messages, needReload: true)
+        }
+    }
+    
+    public func groupMessagesDidRead(_ msgs: [String : JGroupMessageReadInfo]!, in conversation: JConversation!) {
         
+    }
+}
+
+extension SBUGroupChannelViewModel: JConversationCallDelegate {
+    public func callInfoDidUpdate(_ callInfo: JCallInfo!, in conversation: JConversation!, isFinished: Bool) {
+        SBULog.info("callInfoDidUpdate")
     }
 }

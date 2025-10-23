@@ -7,20 +7,32 @@
 
 import UIKit
 import JuggleIM
+import PushKit
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate, PKPushRegistryDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
         
+        print("didFinishLaunchingWithOptions")
         
-        JIM.shared().setServer(["https://nav.juggleim.com"])
-        let appKey = "nsw3sue72begyv7y"
+        JIM.shared().setServerUrls([GlobalConfig.imServer])
+        let appKey = GlobalConfig.appKey
+        HttpManager.shared.setAppKey(appKey)
         JIM.shared().setConsoleLogLevel(.verbose)
         JIM.shared().initWithAppKey(appKey)
         JIM.shared().messageManager.registerContentType(GroupNotifyMessage.self)
+        JIM.shared().messageManager.registerContentType(FriendNotifyMessage.self)
+        JIM.shared().messageManager.registerContentType(ContactCardMessage.self)
+        JIM.shared().messageManager.registerContentType(StreamTextMessage.self)
+        CallCenter.shared().initZegoEngine(with: 111, appSign: "")
+//        CallCenter.shared().initLiveKitEngine()
         SBULog.logType = LogType.error.rawValue | LogType.warning.rawValue | LogType.info.rawValue
+        
+//        let pushRegistry = PKPushRegistry(queue: .main)
+//        pushRegistry.delegate = self
+//        pushRegistry.desiredPushTypes = [.voIP]
         
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             switch settings.authorizationStatus {
@@ -49,7 +61,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         JIM.shared().connectionManager.registerDeviceToken(deviceToken)
         SBULog.info("token did register")
     }
-    
   
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         print("userNotificationCenter userInfo is \(response.notification.request.content.userInfo)")
@@ -58,6 +69,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
         SBULog.info("fail to register token, error is \(error.localizedDescription)")
+    }
+    
+    func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {
+        JIM.shared().connectionManager.registerVoIPToken(pushCredentials.token)
+        SBULog.info("voip token did register")
+
+//        let deviceToken = pushCredentials.token.map { String(format: "%02x", $0) }.joined()
+//        print("VoIP 推送令牌: \(deviceToken)")
+    }
+    
+    func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload, for type: PKPushType, completion: @escaping () -> Void) {
+        print("收到 VoIP 推送: \(payload.dictionaryPayload)")
     }
 
     // MARK: UISceneSession Lifecycle

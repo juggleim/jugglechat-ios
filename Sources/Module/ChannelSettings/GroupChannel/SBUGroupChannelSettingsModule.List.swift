@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import JuggleIM
 
 // swiftlint:disable type_name
 public protocol SBUGroupChannelSettingsModuleListDelegate: SBUBaseChannelSettingsModuleListDelegate {
@@ -35,6 +36,12 @@ public protocol SBUGroupChannelSettingsModuleListDelegate: SBUBaseChannelSetting
     /// Called when the leave item cell was selected in the `listComponent`.
     /// - Parameter listComponent: `SBUGroupChannelSettingsModule.List` object.
     func groupChannelSettingsModuleDidSelectLeave(_ listComponent: SBUGroupChannelSettingsModule.List)
+    
+    func groupChannelSettingsModuleDidSwitchNotification(_ listComponent: SBUGroupChannelSettingsModule.List, isMute: Bool)
+    
+    func groupChannelSettingsModuleDidSwitchTop(_ listComponent: SBUGroupChannelSettingsModule.List, isTop: Bool)
+    
+    func groupChannelSettingsModuleDidClearMessages(_ listComponent: SBUGroupChannelSettingsModule.List)
 }
 
 public protocol SBUGroupChannelSettingsModuleListDataSource: SBUBaseChannelSettingsModuleListDataSource { }
@@ -57,8 +64,6 @@ extension SBUGroupChannelSettingsModule {
             get { self.baseDataSource as? SBUGroupChannelSettingsModuleListDataSource }
             set { self.baseDataSource = newValue }
         }
-
-        public weak var channel: GroupChannel? { self.baseChannel as? GroupChannel }
         
         // MARK: - LifeCycle
         @available(*, unavailable, renamed: "SBUGroupChannelSettingsModule.List()")
@@ -102,18 +107,10 @@ extension SBUGroupChannelSettingsModule {
         
         /// Sets up items for tableView cell configuration.
         open override func setupItems() {
-            let moderationsItem = self.createModerationsItem()
             let notificationsItem = self.createNotificationItem()
-            let membersItem = self.createMembersItem()
-            let searchItem = self.createSearchItem()
-            let leaveItem = self.createLeaveItem()
-
-            var items = self.isOperator ? [moderationsItem] : []
-            items += [notificationsItem, membersItem]
-            if SBUAvailable.isSupportMessageSearch() {
-                items += [searchItem]
-            }
-            items += [leaveItem]
+            let topItem = self.createTopItem()
+            let clearItem = self.createClearItem()
+            let items = [notificationsItem, topItem, clearItem]
             
             self.items = items
         }
@@ -134,46 +131,70 @@ extension SBUGroupChannelSettingsModule {
         }
         
         open func createNotificationItem() -> SBUChannelSettingItem {
-            var notificationSubTitle = ""
-            switch channel?.myPushTriggerOption {
-            case .off:
-                notificationSubTitle = SBUStringSet.ChannelSettings_Notifications_Off
-            case .mentionOnly:
-                notificationSubTitle = SBUStringSet.ChannelSettings_Notifications_Mentiones_Only
-            default:
-                notificationSubTitle = SBUStringSet.ChannelSettings_Notifications_On
-            }
+            let mute = conversationInfo?.mute ?? false
             
             let notificationsItem = SBUChannelSettingItem(
                 title: SBUStringSet.ChannelSettings_Notifications,
-                subTitle: notificationSubTitle,
                 icon: SBUIconSetType.iconNotifications.image(
                     with: theme?.cellTypeIconTintColor,
                     to: SBUIconSetType.Metric.defaultIconSize
                 ),
-                isRightButtonHidden: false) { [weak self] in
+                isRightSwitchHidden: false,
+                isRightSwitchOn: !mute,
+                switchAction:  { [weak self] notificationOn in
                     guard let self = self else { return }
-                    self.delegate?.groupChannelSettingsModuleDidSelectNotifications(self)
-                }
+                    self.delegate?.groupChannelSettingsModuleDidSwitchNotification(self, isMute: !notificationOn)
+                })
             
             return notificationsItem
         }
         
-        open func createMembersItem() -> SBUChannelSettingItem {
-            let membersItem = SBUChannelSettingItem(
-                title: SBUStringSet.ChannelSettings_Members_Title,
-                subTitle: channel?.memberCount.unitFormattedString,
-                icon: SBUIconSetType.iconMembers.image(
+        open func createTopItem() -> SBUChannelSettingItem {
+            let top = conversationInfo?.isTop ?? false
+            let item = SBUChannelSettingItem(
+                title: SBUStringSet.ChannelSettings_Top,
+                icon: SBUIconSetType.iconOperator.image(
                     with: theme?.cellTypeIconTintColor,
                     to: SBUIconSetType.Metric.defaultIconSize
                 ),
-                isRightButtonHidden: false) { [weak self] in
+                isRightSwitchHidden: false,
+                isRightSwitchOn: top,
+                switchAction:  { [weak self] isTop in
                     guard let self = self else { return }
-                    self.delegate?.groupChannelSettingsModuleDidSelectMembers(self)
+                    self.delegate?.groupChannelSettingsModuleDidSwitchTop(self, isTop: isTop)
                 }
-            
-            return membersItem
+            )
+            return item
         }
+        
+        open func createClearItem() -> SBUChannelSettingItem {
+            let item = SBUChannelSettingItem(
+                title: SBUStringSet.ChannelSettings_Clear,
+                icon: SBUIconSetType.iconDelete.image(
+                    with: theme?.cellTypeIconTintColor,
+                    to: SBUIconSetType.Metric.defaultIconSize
+                )) { [weak self] in
+                    guard let self = self else { return }
+                    self.delegate?.groupChannelSettingsModuleDidClearMessages(self)
+                }
+            return item
+        }
+        
+//        open func createMembersItem() -> SBUChannelSettingItem {
+//            let membersItem = SBUChannelSettingItem(
+//                title: SBUStringSet.ChannelSettings_Members_Title,
+//                subTitle: channel?.memberCount.unitFormattedString,
+//                icon: SBUIconSetType.iconMembers.image(
+//                    with: theme?.cellTypeIconTintColor,
+//                    to: SBUIconSetType.Metric.defaultIconSize
+//                ),
+//                isRightButtonHidden: false) { [weak self] in
+//                    guard let self = self else { return }
+//                    self.delegate?.groupChannelSettingsModuleDidSelectMembers(self)
+//                }
+//            
+//            return membersItem
+//        }
         
         open func createSearchItem() -> SBUChannelSettingItem {
             let searchItem = SBUChannelSettingItem(

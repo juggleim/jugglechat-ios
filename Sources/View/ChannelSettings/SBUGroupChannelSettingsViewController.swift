@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import JuggleIM
 
 open class SBUGroupChannelSettingsViewController: SBUBaseChannelSettingsViewController, SBUGroupChannelSettingsModuleHeaderDelegate, SBUGroupChannelSettingsModuleHeaderDataSource, SBUGroupChannelSettingsModuleListDelegate, SBUGroupChannelSettingsModuleListDataSource, SBUGroupChannelSettingsViewModelDelegate {
     
@@ -26,7 +27,7 @@ open class SBUGroupChannelSettingsViewController: SBUBaseChannelSettingsViewCont
         set { self.baseViewModel = newValue }
     }
     
-    public override var channel: GroupChannel? { self.viewModel?.channel as? GroupChannel }
+    public override var conversationInfo: JConversationInfo? { self.viewModel?.conversationInfo }
     
     // MARK: - Lifecycle
     @available(*, unavailable, renamed: "SBUGroupChannelSettingsViewController(channelURL:)")
@@ -43,31 +44,19 @@ open class SBUGroupChannelSettingsViewController: SBUBaseChannelSettingsViewCont
     
     /// If you have channel object, use this initialize function.
     /// - Parameter channel: Channel object
-    required public init(channel: GroupChannel) {
+    required public init(conversationInfo: JConversationInfo) {
         super.init(nibName: nil, bundle: nil)
         SBULog.info("")
         
-        self.createViewModel(channel: channel)
-        self.headerComponent = SBUModuleSet.GroupChannelSettingsModule.HeaderComponent.init()
-        self.listComponent = SBUModuleSet.GroupChannelSettingsModule.ListComponent.init()
-    }
-    
-    /// If you don't have channel object and have channelURL, use this initialize function.
-    /// - Parameter channelURL: Channel url string
-    required public init(channelURL: String) {
-        super.init(nibName: nil, bundle: nil)
-        SBULog.info("")
-        
-        self.createViewModel(channelURL: channelURL)
+        self.createViewModel(conversationInfo: conversationInfo)
         self.headerComponent = SBUModuleSet.GroupChannelSettingsModule.HeaderComponent.init()
         self.listComponent = SBUModuleSet.GroupChannelSettingsModule.ListComponent.init()
     }
     
     // MARK: - ViewModel
-    open override func createViewModel(channel: BaseChannel? = nil, channelURL: String? = nil) {
+    open override func createViewModel(conversationInfo: JConversationInfo? = nil) {
         self.baseViewModel = SBUGroupChannelSettingsViewModel(
-            channel: channel,
-            channelURL: channelURL,
+            conversationInfo: conversationInfo,
             delegate: self
         )
     }
@@ -97,21 +86,12 @@ open class SBUGroupChannelSettingsViewController: SBUBaseChannelSettingsViewCont
     
     /// If you want to use a custom userListViewController, override it and implement it.
     open func showMemberList() {
-        guard let channel = self.channel else { return }
-        let memberListVC = SBUViewControllerSet.GroupUserListViewController.init(
-            channel: channel,
-            userListType: .members
-        )
-        self.navigationController?.pushViewController(memberListVC, animated: true)
-    }
-    
-    /// If you want to use a custom moderationsViewController, override it and implement it.
-    /// - Since: 1.2.0
-    open override func showModerationList() {
-        guard let channel = self.channel else { return }
-        
-        let moderationsVC = SBUViewControllerSet.GroupModerationsViewController.init(channel: channel)
-        self.navigationController?.pushViewController(moderationsVC, animated: true)
+//        guard let channel = self.channel else { return }
+//        let memberListVC = SBUViewControllerSet.GroupUserListViewController.init(
+//            channel: channel,
+//            userListType: .members
+//        )
+//        self.navigationController?.pushViewController(memberListVC, animated: true)
     }
     
     // MARK: - SBUGroupChannelSettingsModuleHeaderDelegate
@@ -156,7 +136,7 @@ open class SBUGroupChannelSettingsViewController: SBUBaseChannelSettingsViewCont
     }
     
     open func groupChannelSettingsModuleDidSelectNotifications(_ listComponent: SBUGroupChannelSettingsModule.List) {
-        self.showNotifications()
+        self.selectNotification()
     }
     
     open func groupChannelSettingsModuleDidSelectMembers(_ listComponent: SBUGroupChannelSettingsModule.List) {
@@ -171,10 +151,32 @@ open class SBUGroupChannelSettingsViewController: SBUBaseChannelSettingsViewCont
         self.viewModel?.leaveChannel()
     }
     
+    open func groupChannelSettingsModuleDidSwitchNotification(_ listComponent: SBUGroupChannelSettingsModule.List, isMute: Bool) {
+        self.viewModel?.mute(isMute)
+    }
+    
+    open func groupChannelSettingsModuleDidSwitchTop(_ listComponent: SBUGroupChannelSettingsModule.List, isTop: Bool) {
+        self.viewModel?.setTop(isTop)
+    }
+    
+    open func groupChannelSettingsModuleDidClearMessages(_ listComponent: SBUGroupChannelSettingsModule.List) {
+        let okButton = SBUAlertButtonItem(title: "确认") {[weak self] _ in
+            self?.viewModel?.clearMessages()
+        }
+        let cancelButton = SBUAlertButtonItem(title: SBUStringSet.Cancel) { _ in }
+        SBUAlertView.show(
+            title: "确定清除聊天记录？",
+            needInputField: false,
+            centerYRatio: 0.75,
+            confirmButtonItem: okButton,
+            cancelButtonItem: cancelButton
+        )
+    }
+    
     // MARK: - SBUGroupChannelSettingsModuleListDataSource
     open func baseChannelSettingsModule(_ listComponent: SBUBaseChannelSettingsModule.List,
-                                        channelForTableView tableView: UITableView) -> BaseChannel? {
-        return self.channel
+                                        conversationInfoForTableView tableView: UITableView) -> JConversationInfo? {
+        return self.conversationInfo
     }
     
     open func baseChannelSettingsModuleIsOperator(_ listComponent: SBUBaseChannelSettingsModule.List) -> Bool {
@@ -182,30 +184,30 @@ open class SBUGroupChannelSettingsViewController: SBUBaseChannelSettingsViewCont
     }
     
     // MARK: - SBUGroupChannelSettingsViewModelDelegate
-    open override func baseChannelSettingsViewModel(
-        _ viewModel: SBUBaseChannelSettingsViewModel,
-        didChangeChannel channel: BaseChannel?,
-        withContext context: MessageContext
-    ) {
-        super.baseChannelSettingsViewModel(viewModel, didChangeChannel: channel, withContext: context)
-        
-        self.listComponent?.reloadChannelInfoView()
-        self.listComponent?.reloadTableView()
-    }
-    
-    open func groupChannelSettingsViewModel(_ viewModel: SBUGroupChannelSettingsViewModel,
-                                            didLeaveChannel channel: GroupChannel) {
-        guard let navigationController = self.navigationController,
-              navigationController.viewControllers.count > 1 else {
-                  self.dismiss(animated: true, completion: nil)
-                  return
-              }
-        
-        for viewController in navigationController.viewControllers where viewController is SBUBaseChannelListViewController {
-            navigationController.popToViewController(viewController, animated: true)
-            return
-        }
-        
-        navigationController.popToRootViewController(animated: true)
-    }
+//    open override func baseChannelSettingsViewModel(
+//        _ viewModel: SBUBaseChannelSettingsViewModel,
+//        didChangeChannel channel: BaseChannel?,
+//        withContext context: MessageContext
+//    ) {
+//        super.baseChannelSettingsViewModel(viewModel, didChangeChannel: channel, withContext: context)
+//        
+//        self.listComponent?.reloadChannelInfoView()
+//        self.listComponent?.reloadTableView()
+//    }
+//    
+//    open func groupChannelSettingsViewModel(_ viewModel: SBUGroupChannelSettingsViewModel,
+//                                            didLeaveChannel channel: GroupChannel) {
+//        guard let navigationController = self.navigationController,
+//              navigationController.viewControllers.count > 1 else {
+//                  self.dismiss(animated: true, completion: nil)
+//                  return
+//              }
+//        
+//        for viewController in navigationController.viewControllers where viewController is SBUBaseChannelListViewController {
+//            navigationController.popToViewController(viewController, animated: true)
+//            return
+//        }
+//        
+//        navigationController.popToRootViewController(animated: true)
+//    }
 }

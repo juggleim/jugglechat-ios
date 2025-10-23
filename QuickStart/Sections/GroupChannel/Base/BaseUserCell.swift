@@ -217,6 +217,13 @@ class BaseUserCell: SBUTableViewCell {
             ),
             for: .selected
         )
+        self.checkboxButton.setImage(
+            SBUIconSetType.iconCheckboxChecked.image(
+                with: theme.moreButtonDisabledColor,
+                to: SBUIconSetType.Metric.defaultIconSize
+            ),
+            for: .disabled
+        )
         
         self.moreButton.setImage(
             SBUIconSetType.iconMore.image(
@@ -248,7 +255,7 @@ class BaseUserCell: SBUTableViewCell {
         self.type = type
         self.isChecked = isChecked
         
-        let isMe = (user.userId == SBUGlobals.currentUser?.userId)
+        let isMe = (user.userId == JIM.shared().currentUserId)
         self.userIdLabel.text = user.userId
         
         if let userName = user.userName {
@@ -258,15 +265,19 @@ class BaseUserCell: SBUTableViewCell {
         }
         
         let profileURL = user.portrait ?? ""
-        self.loadImageSession = self.userImageView.loadImage(
-            urlString: profileURL,
-            placeholder: SBUIconSetType.iconUser.image(
-                with: self.theme.userPlaceholderTintColor,
-                to: SBUIconSetType.Metric.defaultIconSize
-            ),
-            subPath: SBUCacheManager.PathType.userProfile
-        )
-        self.userImageView.contentMode = profileURL.count > 0 ? .scaleAspectFill : .center
+        if profileURL.count == 0 {
+            self.userImageView.image = PortraitUtil.defaultPortraitImage(with: user.userId, name: user.userName, type: .private)
+        } else {
+            self.loadImageSession = self.userImageView.loadImage(
+                urlString: profileURL,
+                placeholder: SBUIconSetType.iconUser.image(
+                    with: self.theme.userPlaceholderTintColor,
+                    to: SBUIconSetType.Metric.defaultIconSize
+                ),
+                subPath: SBUCacheManager.PathType.userProfile
+            )
+        }
+        self.userImageView.contentMode = .scaleAspectFill
         
         self.userImageView.backgroundColor = theme.userPlaceholderBackgroundColor
 
@@ -314,6 +325,12 @@ class BaseUserCell: SBUTableViewCell {
             self.userIdLabel.isHidden = !showsUserId
             self.userImageSize = 28
             self.updateLayouts()
+        case .newFriend:
+            self.userImageView.image = UIImage(named: "newFriend")
+        case .group:
+            self.userImageView.image = UIImage(named: "defaultGroup")
+        case .chatroom:
+            self.userImageView.image = UIImage(named: "imgOpenchannel")
         default:
             break
         }

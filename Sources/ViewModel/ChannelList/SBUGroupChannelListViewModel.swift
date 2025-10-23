@@ -33,8 +33,7 @@ public protocol SBUGroupChannelListViewModelDelegate: SBUBaseChannelListViewMode
 
 open class SBUGroupChannelListViewModel: SBUBaseChannelListViewModel {
     // MARK: - Constants
-    static let channelLoadLimit: Int32 = 20
-    static let notificationChannelLoadLimit: UInt = 100
+    static let channelLoadLimit: Int32 = 50
     
     // MARK: - Property (Public)
     public var conversationInfoList: [JConversationInfo] = []
@@ -48,6 +47,7 @@ open class SBUGroupChannelListViewModel: SBUBaseChannelListViewModel {
     var conversationTypes: [NSNumber]?
     
     var historyComplete = false
+    let nextLock = NSLock()
     
     // MARK: - Life Cycle
     
@@ -80,14 +80,19 @@ open class SBUGroupChannelListViewModel: SBUBaseChannelListViewModel {
     /// This function loads the channel list. If the reset value is `true`, the channel list will reset.
     /// - Parameter reset: To reset the channel list
     public override func loadNextChannelList(reset: Bool) {
+        if historyComplete {
+            return
+        }
+        
+        guard self.nextLock.try() else {
+            SBULog.info("Next channel list already loading")
+            return
+        }
+        
         super.loadNextChannelList(reset: reset)
         
         if reset {
             self.reset()
-        }
-        
-        if historyComplete {
-            return
         }
         
         let count = self.conversationInfoList.count
@@ -102,9 +107,13 @@ open class SBUGroupChannelListViewModel: SBUBaseChannelListViewModel {
             self.historyComplete = true
         }
         
-        self.conversationInfoList.append(contentsOf: newConversationInfoList)
+        self.updateConversationInfoList(newConversationInfoList)
+        self.nextLock.unlock()
+        SBULog.info("Next channel list unlock")
         
-        self.delegate?.groupChannelListViewModel(self, didChangeChannelList: self.conversationInfoList, needsToReload: true)
+//        self.conversationInfoList.append(contentsOf: newConversationInfoList)
+//        
+//        self.delegate?.groupChannelListViewModel(self, didChangeChannelList: self.conversationInfoList, needsToReload: true)
     }
     
     /// This function resets channelList
@@ -117,8 +126,77 @@ open class SBUGroupChannelListViewModel: SBUBaseChannelListViewModel {
     
     // MARK: - SDK Relations
     public func deleteConversationInfo(_ conversationInfo: JConversationInfo) {
+        SBULog.info("[Request] delete conversationInfo")
+        self.setLoading(true, true)
+        
         JIM.shared().conversationManager.deleteConversationInfo(by: conversationInfo.conversation) {
+            DispatchQueue.main.async { [weak self] in
+                self?.setLoading(false, false)
+            }
         } error: { code in
+            DispatchQueue.main.async { [weak self] in
+                self?.setLoading(false, false)
+                if code != .none {
+                    self?.setLoading(false, false)
+                    self?.delegate?.didReceiveError(code, isBlocker: false)
+                }
+            }
+        }
+    }
+    
+    /// Changes push trigger option on a channel.
+    /// - Parameters:
+    ///   - option: Push trigger option to change
+    ///   - channel: Channel to change option
+    public func mute(_ conversationInfo:JConversationInfo, isMute: Bool) {
+        SBULog.info("[Request] mute: \(isMute ? "on" : "off")")
+        self.setLoading(true, true)
+        
+        JIM.shared().conversationManager.setMute(isMute, conversation: conversationInfo.conversation) {
+            DispatchQueue.main.async { [weak self] in
+                self?.setLoading(false, false)
+            }
+        } error: { code in
+            DispatchQueue.main.async { [weak self] in
+                if code != .none {
+                    self?.setLoading(false, false)
+                    self?.delegate?.didReceiveError(code, isBlocker: false)
+                }
+            }
+        }
+    }
+    
+    public func setUnread(_ conversationInfo:JConversationInfo, isUnread: Bool) {
+        SBULog.info("[Request] setUnread: \(isUnread ? "on" : "off")")
+        self.setLoading(true, true)
+        
+        if isUnread {
+            JIM.shared().conversationManager.setUnread(conversationInfo.conversation) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.setLoading(false, false)
+                }
+            } error: { code in
+                DispatchQueue.main.async { [weak self] in
+                    if code != .none {
+                        self?.setLoading(false, false)
+                        self?.delegate?.didReceiveError(code, isBlocker: false)
+                    }
+                }
+            }
+
+        } else {
+            JIM.shared().conversationManager.clearUnreadCount(by: conversationInfo.conversation) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.setLoading(false, false)
+                }
+            } error: { code in
+                DispatchQueue.main.async { [weak self] in
+                    if code != .none {
+                        self?.setLoading(false, false)
+                        self?.delegate?.didReceiveError(code, isBlocker: false)
+                    }
+                }
+            }
         }
     }
     
@@ -135,13 +213,38 @@ open class SBUGroupChannelListViewModel: SBUBaseChannelListViewModel {
     }
     
     private func updateConversationInfoList(_ conversationInfoList: [JConversationInfo]) {
-        conversationInfoList.forEach { conversationInfo in
-            if let index = SBUUtils.findIndex(ofConversationInfo: conversationInfo, in: self.conversationInfoList) {
-                self.conversationInfoList.remove(at: index)
+        var tempList = Array(self.conversationInfoList)
+        for i in 0..<conversationInfoList.count {
+            let conversationInfo = conversationInfoList[i]
+            if conversationInfo.conversation.conversationType == .system
+                && conversationInfo.conversation.conversationId == GlobalConst.friendConversationId {
+                return
             }
-            self.conversationInfoList.insert(conversationInfo, at: 0)
+            if let index = SBUUtils.findIndex(ofConversationInfo: conversationInfo, in: tempList) {
+                tempList.remove(at: index)
+            }
+            tempList.insert(conversationInfo, at: 0)
         }
-        self.conversationInfoList.sort { $0.sortTime > $1.sortTime }
+        
+        var topConversationInfoList: [JConversationInfo] = []
+        var notTopConversationInfoList: [JConversationInfo] = []
+        for conversationInfo in tempList {
+            if conversationInfo.isTop {
+                topConversationInfoList.append(conversationInfo)
+            } else {
+                notTopConversationInfoList.append(conversationInfo)
+            }
+        }
+        topConversationInfoList.sort {
+            $0.topTime > $1.topTime
+        }
+        notTopConversationInfoList.sort {
+            $0.sortTime > $1.sortTime
+        }
+        var result: [JConversationInfo] = []
+        result.append(contentsOf: topConversationInfoList)
+        result.append(contentsOf: notTopConversationInfoList)
+        self.conversationInfoList = result
         
         self.delegate?.groupChannelListViewModel(self, didChangeChannelList: self.conversationInfoList, needsToReload: true)
     }
