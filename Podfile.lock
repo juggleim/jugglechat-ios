@@ -1,18 +1,18 @@
 PODS:
-  - JuggleIM (1.8.24.2)
-  - JZegoCall (1.8.21.2):
+  - JuggleIM (1.8.28.1)
+  - JZegoCall (1.8.25):
     - JuggleIM
-    - ZegoExpressEngine (= 3.21.0)
+    - ZegoExpressEngine
   - Masonry (1.1.0)
   - MBProgressHUD (1.1.0)
   - SDWebImage (5.20.0):
     - SDWebImage/Core (= 5.20.0)
   - SDWebImage/Core (5.20.0)
-  - ZegoExpressEngine (3.21.0)
+  - ZegoExpressEngine (3.22.0)
 
 DEPENDENCIES:
-  - JuggleIM (= 1.8.24.2)
-  - JZegoCall (= 1.8.21.2)
+  - JuggleIM (= 1.8.28.1)
+  - JZegoCall (= 1.8.25)
   - Masonry (= 1.1.0)
   - MBProgressHUD (= 1.1.0)
   - SDWebImage (= 5.20.0)
@@ -27,13 +27,13 @@ SPEC REPOS:
     - ZegoExpressEngine
 
 SPEC CHECKSUMS:
-  JuggleIM: c9fafc583699ba10f8dfe4ee24c2306df21f81f4
-  JZegoCall: 70611f9d60dd18c2bd5557e9ac837236044be7fd
+  JuggleIM: a465073e367c599a64aba3f5a77508a2c5f4c67e
+  JZegoCall: 2764397dcaea833788cbb7be4d8613ed3de765ad
   Masonry: 678fab65091a9290e40e2832a55e7ab731aad201
   MBProgressHUD: e7baa36a220447d8aeb12769bf0585582f3866d9
   SDWebImage: 73c6079366fea25fa4bb9640d5fb58f0893facd8
-  ZegoExpressEngine: 35e12ec838d360b79d57eb6c8572efaad8d204d5
+  ZegoExpressEngine: c1b01551fc817e6fd32b3a877a9d15de6d93f68e
 
-PODFILE CHECKSUM: 4615f1f028cec59479a43fbaaaa2fedb753893ab
+PODFILE CHECKSUM: 3920e45d8f94faa7185d99dd8df060a790154a27
 
 COCOAPODS: 1.16.2

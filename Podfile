@@ -6,11 +6,11 @@ target 'QuickStart' do
   use_frameworks!
 
   # Pods for QuickStart
-  pod 'JuggleIM', '1.8.24.2'
+  pod 'JuggleIM', '1.8.28.1'
   pod 'MBProgressHUD', '1.1.0'
   pod 'Masonry', '1.1.0'
   pod 'SDWebImage', '5.20.0'
-  pod 'JZegoCall', '1.8.21.2'
+  pod 'JZegoCall', '1.8.25'
 end
 
 post_install do |installer|
